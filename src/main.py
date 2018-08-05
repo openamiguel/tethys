@@ -53,27 +53,38 @@ def scrape_all_papers(logger, fpath):
 	"""
 	# Iterates through all tags and subtags
 	for tag in TETHYS_TAG_SUBTAG:
+		logger.info("Currently processing TAG: %s", tag)
 		tag_df = pd.DataFrame(columns=TABLE_COLUMNS)
 		for subtag in TETHYS_TAG_SUBTAG[tag]:
+			logger.info("Currently processing SUBTAG: %s", subtag)
 			subtag_df = pd.DataFrame(columns=TABLE_COLUMNS)
 			# Gets data from all pages
 			pagenum = 0
 			while True:
+				logger.info("Currently processing PAGE NUMBER: %2d", pagenum)
 				page_df = scrape_page(logger, tag, subtag, pagenum=pagenum)
 				if page_df is None:
+					logger.info("Page number %2d not found, continuing...", pagenum)
 					break
 				# Adds the dataframe from this page to the subtag dataframe
+				logger.debug("Merging PAGE NUMBER %2d data with SUBTAG %s data", pagenum, subtag)
 				subtag_df = pd.concat([subtag_df, page_df], sort=False)
+				logger.info("Finished processing PAGE NUMBER: %2d", pagenum)
 				pagenum += 1
 			# Writes the subtag dataframe to a file
+			logger.debug("Writing SUBTAG %s data to file...", subtag)
 			subtag_df.to_csv("{}{}-{}.csv".format(fpath, tag, subtag), sep=DELIM, index=False)
 			# Adds the subtag dataframe to the tag dataframe
+			logger.debug("Merging SUBTAG %s data with TAG %s data", subtag, tag)
 			tag_df = pd.concat([tag_df, subtag_df], sort=False)
+			logger.info("Finished processing SUBTAG: %s", subtag)
 		# Writes the subtag dataframe to a file
+		logger.debug("Writing TAG %s data to file...", tag)
 		tag_df.to_csv("{}{}.csv".format(fpath, tag), sep=DELIM, index=False)
+		logger.info("Finished processing TAG: %s", tag)
 	return True
 
-def scrape_page(logger, tag, subtag, pagenum=""):
+def scrape_page(logger, tag, subtag, pagenum=0):
 	""" Gets the table data from a given tag, subtag and page number
 		Reads a Tethys table in the same order as the other code, ensuring that
 			the output is consistent. 
@@ -114,7 +125,9 @@ def scrape_page(logger, tag, subtag, pagenum=""):
 			logger.error("First match of table at URL {} does not contain paper data".format(tag_subtag_url))
 		return None
 	# Scrapes for the external links
+	logger.debug("Retrieving URLs for TAG %s SUBTAG %s PAGENUM %2d...", tag, subtag, pagenum)
 	urls = scrape_page_urls(logger, tag, subtag, pagenum=pagenum)
+	logger.debug("Merging URLs with the page data...")
 	page_df = pd.concat([page_df, urls], axis=1, sort=False)
 	# Returns the dataframe of page data
 	return page_df
@@ -135,16 +148,20 @@ def scrape_page_urls(logger, tag, subtag, pagenum=0):
 	# Tries to look for the given link and handles errors accordingly
 	try:
 		html = urllib.request.urlopen(page_url).read()
+	# Marked as logger.critical because the absence of URLs will break the code while running
 	except urllib.error.HTTPError as e:
-		logger.error(e)
+		logger.critical(e)
+		logger.critical("CRITICAL!!! A NoneType object was returned by scrape_page_urls, " + 
+				"which will break the scrape_page code at Line 131")
 		return None
 	soup = BeautifulSoup(html, "lxml")
 	# Iterates through all <a href> tags that point to Tethys publications
 	# These links are in-house locations for Tethys papers
 	for link in soup.findAll('a', attrs={'href': re.compile("/publications/")}):
-		link_end = link.get('href')
 		# Tries to read the publication link from Tethys
+		link_end = link.get('href')
 		tethys_pub_link = TETHYS_URL.format(link_end, "", "")
+		logger.debug("Looking for external source link at Tethys link %s", tethys_pub_link)
 		tethys_pub_html = urllib.request.urlopen(tethys_pub_link).read()
 		tethys_pub_soup = BeautifulSoup(tethys_pub_html, "lxml")
 		# Tries to get the external publication link (ex. Wiley)
@@ -152,8 +169,14 @@ def scrape_page_urls(logger, tag, subtag, pagenum=0):
 		pub_link = tethys_pub_link
 		try:
 			pub_link = tethys_pub_soup.find('a', href=True, text='External Link')['href']
+			logger.debug("Found external source link %s at Tethys link %s", pub_link, tethys_pub_link)
 		except TypeError:
-			pass
+			try:
+				pub_link = tethys_pub_soup.find('a', href=True, text='Access File')['href']
+				logger.debug("Found internal PDF source link %s at Tethys link %s", pub_link, tethys_pub_link)
+			except TypeError:
+				logger.warning("Did not find any source link at Tethys link %s", tethys_pub_link)
+				logger.warning("In lieu of source link, the Tethys description link was provided.")
 		# Adds the link to the list of links
 		pub_link_list.append(pub_link)
 	# Convert the list to a Series and return
@@ -170,7 +193,7 @@ def main():
 	logger = logging.getLogger(__name__)
 	logger.setLevel(logging.DEBUG)
 	# Set file path for logger
-	handler = logging.FileHandler('{}/hyperion.log'.format(logdir))
+	handler = logging.FileHandler('{}/tethys.log'.format(logdir))
 	handler.setLevel(logging.DEBUG)
 	# Format the logger
 	formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -186,7 +209,7 @@ def main():
 	# Indicate which file is running
 	logger.info("----------INITIALIZING NEW RUN OF %s----------", os.path.basename(__file__))
 	# Save the folder path
-	fpath = prompts[prompts.index('-filepath')+1]
+	fpath = prompts[prompts.index('-folderpath')+1]
 	if fpath[-1] != '/': fpath = fpath + "/"
 	start_time = time.time()
 	fpath = "/Users/openamiguel/Desktop/tethys/"

@@ -202,7 +202,7 @@ def dedup_papers(logger, fpath, title="All_Papers"):
 			logger.debug("Opening file %s", filepath)
 			subtag_df = pd.read_csv(filepath, sep=DELIM)
 			logger.debug("Merging file %s with previous content...", filepath)
-			all_df = pd.concat([all_df, subtag_df])
+			all_df = pd.concat([all_df, subtag_df], sort=False)
 	logger.debug("De-duplicating the whole dataframe and writing to file...")
 	all_df = all_df.drop_duplicates(subset=['title', 'authors', 'content_type'])
 	all_df.to_csv("{}{}.{}".format(fpath, title, DATATYPE), sep=DELIM, index=False)

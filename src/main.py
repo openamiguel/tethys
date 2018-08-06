@@ -27,6 +27,7 @@ import urllib.error
 import urllib.request
 
 # Up-to-date as of August 4, 2018
+DATATYPE = "csv"
 DELIM = "\t"
 TABLE_COLUMNS = ['title', 'authors', 'date', 'content_type', 'technology_type', 'stressor', 'receptor']
 TETHYS_URL = "https://tethys.pnnl.gov{}{}{}"
@@ -48,7 +49,7 @@ TETHYS_TAG_SUBTAG = {
 
 def scrape_all_papers(logger, fpath):
 	""" Iterates through all tags and subtags to get the papers stored on Tethys.
-		Inputs: folderpath to write files to
+		Inputs: logger object, folderpath to write files to
 		Outputs: none (all outputs written to files)
 	"""
 	# Iterates through all tags and subtags
@@ -73,14 +74,14 @@ def scrape_all_papers(logger, fpath):
 				pagenum += 1
 			# Writes the subtag dataframe to a file
 			logger.debug("Writing SUBTAG %s data to file...", subtag)
-			subtag_df.to_csv("{}{}-{}.csv".format(fpath, tag, subtag), sep=DELIM, index=False)
+			subtag_df.to_csv("{}{}-{}.{}".format(fpath, tag, subtag, DATATYPE), sep=DELIM, index=False)
 			# Adds the subtag dataframe to the tag dataframe
 			logger.debug("Merging SUBTAG %s data with TAG %s data", subtag, tag)
 			tag_df = pd.concat([tag_df, subtag_df], sort=False)
 			logger.info("Finished processing SUBTAG: %s", subtag)
 		# Writes the subtag dataframe to a file
 		logger.debug("Writing TAG %s data to file...", tag)
-		tag_df.to_csv("{}{}.csv".format(fpath, tag), sep=DELIM, index=False)
+		tag_df.to_csv("{}{}.{}".format(fpath, tag, DATATYPE), sep=DELIM, index=False)
 		logger.info("Finished processing TAG: %s", tag)
 	return True
 
@@ -88,7 +89,7 @@ def scrape_page(logger, tag, subtag, pagenum=0):
 	""" Gets the table data from a given tag, subtag and page number
 		Reads a Tethys table in the same order as the other code, ensuring that
 			the output is consistent. 
-		Inputs: tag, subtag, and page number
+		Inputs: logger object, tag, subtag, and page number
 		Outputs: dataframe of paper data from given URL
 	"""
 	# Gets the Tethys URL based on tag and subtag
@@ -136,7 +137,7 @@ def scrape_page_urls(logger, tag, subtag, pagenum=0):
 	""" Gets a list of URLs from a given tag, subtag and page number
 		Reads a Tethys table in the same order as the other code, ensuring that
 			the output is consistent. 
-		Inputs: tag, subtag, and page number
+		Inputs: logger object, tag, subtag, and page number
 		Outputs: list of all paper/report URLs to get from Tethys website
 	"""
 	# Builds an empty list to store the outputs
@@ -183,6 +184,30 @@ def scrape_page_urls(logger, tag, subtag, pagenum=0):
 	pub_link_series = pd.Series(pub_link_list, name="paper_url")
 	return pub_link_series
 
+def dedup_papers(logger, fpath, title="All_Papers"):
+	""" Runs through all download CSV files, lumps them into one table, and runs
+		a de-dup based on the title, authors, and content type. 
+		Inputs: logger object, folder path to read/write files, and optional
+			file title
+		Outputs: none (written to file)
+	"""
+	all_df = pd.DataFrame(columns=TABLE_COLUMNS)
+	# Walks through all files at folderpath
+	for curpath, directories, files in os.walk(fpath):
+		for file in files:
+			# Ignores the files of any other file type
+			if DATATYPE not in file:
+				continue
+			filepath = os.path.join(curpath, file)
+			logger.debug("Opening file %s", filepath)
+			subtag_df = pd.read_csv(filepath, sep=DELIM)
+			logger.debug("Merging file %s with previous content...", filepath)
+			all_df = pd.concat([all_df, subtag_df])
+	logger.debug("De-duplicating the whole dataframe and writing to file...")
+	all_df = all_df.drop_duplicates(subset=['title', 'authors', 'content_type'])
+	all_df.to_csv("{}{}.{}".format(fpath, title, DATATYPE), sep=DELIM, index=False)
+	return True
+
 def main():
 	""" Run the code and time the whole process """
 	# Get the command argument prompts
@@ -211,11 +236,17 @@ def main():
 	# Save the folder path
 	fpath = prompts[prompts.index('-folderpath')+1]
 	if fpath[-1] != '/': fpath = fpath + "/"
-	start_time = time.time()
-	fpath = "/Users/openamiguel/Desktop/tethys/"
-	scrape_all_papers(logger, fpath)
-	end_time = time.time()
-	logger.info("Full time elapsed: {0:.6f}".format(end_time - start_time))
+	# Runs the code to scrape papers, if the user does not want to suppress the process
+	suppress_download = "-suppressDownload" in prompts
+	if not suppress_download: 
+		start_time = time.time()
+		scrape_all_papers(logger, fpath)
+		end_time = time.time()
+		logger.info("Time elapsed to scrape all data: {0:.6f}".format(end_time - start_time))
+	# Runs the code to consolidate all papers into one file
+	suppress_consol = "-suppressConsolidate" in prompts
+	if not suppress_consol:
+		dedup_papers(logger, fpath)
 
 if __name__ == "__main__":
 	main()
